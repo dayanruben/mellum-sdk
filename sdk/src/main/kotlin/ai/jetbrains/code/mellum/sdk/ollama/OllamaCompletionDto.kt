@@ -8,10 +8,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class OllamaCompletionRequestDTO(
     val model: String,
-    val system: String,
-    val suffix: String,
     val prompt: String,
-    val stream: Boolean
+    val stream: Boolean,
+    val raw: Boolean
 )
 
 /**
@@ -20,7 +19,8 @@ data class OllamaCompletionRequestDTO(
 @Serializable
 @Suppress("PropertyName")
 data class OllamaCompletionResponseDTO(
-    val model: String,
+    val model: String? = null,
+    val error: String? = null,
     val created_at: String? = null,
     val response: String? = null,
     val done: Boolean? = null,

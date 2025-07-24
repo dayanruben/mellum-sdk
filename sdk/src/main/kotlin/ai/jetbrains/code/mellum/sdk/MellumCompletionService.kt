@@ -1,7 +1,7 @@
 package ai.jetbrains.code.mellum.sdk
 
 import ai.grazie.code.features.common.completion.context.strategy.contexts
-import ai.grazie.code.features.common.completion.context.strategy.legacyDirectoryStrategy
+import ai.grazie.code.features.common.completion.context.strategy.legacyIntersectionOverUnionStrategy
 import ai.grazie.code.files.model.*
 import ai.grazie.code.files.model.DocumentProvider.Position
 import ai.jetbrains.code.mellum.sdk.ollama.DEFAULT_OLLAMA_MODEL_ID
@@ -26,15 +26,15 @@ class MellumCompletionService<Path, Document>(
 
     private val completionExecutor = OllamaCompletionExecutor(ollamaClient, modelName)
 
-    fun getCompletion(file: Path, position: Position): String {
-        val fileContent = runBlocking { documentProvider.charsByPath(file) } ?: return ""
+    fun getCompletion(file: Path, position: Position): String = runBlocking {
+        val fileContent = documentProvider.charsByPath(file) ?: return@runBlocking ""
         val offset = position.toOffset(fileContent)
         logger.info { "Executing completion at offset $offset in file $file" }
         val textBeforeCursor = fileContent.substring(0, offset)
         val textAfterCursor = fileContent.substring(offset, fileContent.length)
 
-        val languageSet = LanguageSet.Completion.Jet.Kotlin
-        val strategy = legacyDirectoryStrategy(
+        val languageSet = LanguageSet.of(languageProvider.language(file))
+        val strategy = legacyIntersectionOverUnionStrategy(
             queriedLanguages = languageSet,
             languageProvider = languageProvider,
             fs = fileSystemProvider,
@@ -45,22 +45,25 @@ class MellumCompletionService<Path, Document>(
             softTimeout = 50.milliseconds,
         )
 
-        val contextBuilder = StringBuilder()
-        runBlocking {
+        val finalPrompt = buildString {
             strategy.contexts(file, offset).collect { context ->
-                contextBuilder.append("<filename>${context.path}\n")
-                contextBuilder.append(context.content)
+                append("<filename>${context.path}\n")
+                append(context.content)
             }
-        }
-        logger.info { "Prepared context: ${contextBuilder.length} chars" }
+            logger.info { "Prepared context: ${this.length} chars" }
 
-        val completion = runBlocking {
-            completionExecutor.execute(
-                completionPrompt = textBeforeCursor, system = contextBuilder.toString(), suffix = textAfterCursor
-            )
+            append("<filename>")
+            append(file)
+            append("<fim_suffix>")
+            append(textAfterCursor)
+            append("<fim_prefix>")
+            append(textBeforeCursor)
+            append("<fim_middle>")
         }
+
+        val completion = completionExecutor.execute(finalPrompt)
 
         logger.info { "Got completion: $completion" }
-        return completion
+        return@runBlocking completion
     }
 }
